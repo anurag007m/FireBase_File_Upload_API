@@ -1,73 +1,58 @@
 const express = require('express');
-
 const app = express();
+require('dotenv').config();
+const { upload } = require('./middleware/multer');
+const { getStorage, ref, uploadBytesResumable, getDownloadURL } = require('firebase/storage');
+const { signInWithEmailAndPassword } = require("firebase/auth");
+const { auth } = require('./config/firebase.config');
 
-require('dotenv').config()
+// Serve the static HTML file for the home page
+app.get('/', (req, res) => {
+    res.sendFile(__dirname + '/src/index.html');
+});
 
-const { upload, uploadMultiple } = require('./middleware/multer')
-
-const { getStorage, ref ,uploadBytesResumable } = require('firebase/storage')
-
-const { signInWithEmailAndPassword, createUserWithEmailAndPassword } = require("firebase/auth");
-
-const { auth } = require('./config/firebase.config')
-
-
-async function uploadImage(file, quantity) {
+async function uploadImage(file) {
     const storageFB = getStorage();
 
-    await signInWithEmailAndPassword(auth, process.env.FIREBASE_USER, process.env.FIREBASE_AUTH)
+    await signInWithEmailAndPassword(auth, process.env.FIREBASE_USER, process.env.FIREBASE_AUTH);
 
-    if (quantity === 'single') {
-        const dateTime = Date.now();
-        const fileName = `images/${dateTime}`
-        const storageRef = ref(storageFB, fileName)
-        const metadata = {
-            contentType: file.type,
-        }
-        await uploadBytesResumable(storageRef, file.buffer, metadata);
-        return fileName
-    }
+    const dateTime = Date.now();
+    const fileName = `images/${dateTime}`;
+    const storageRef = ref(storageFB, fileName);
+    const metadata = {
+        contentType: file.type,
+    };
 
-    if (quantity === 'multiple') {
-        for(let i=0; i < file.images.length; i++) {
-            const dateTime = Date.now();
-            const fileName = `images/${dateTime}`
-            const storageRef = ref(storageFB, fileName)
-            const metadata = {
-                contentType: file.images[i].mimetype,
-            }
+    await uploadBytesResumable(storageRef, file.buffer, metadata);
 
-            const saveImage = await Image.create({imageUrl: fileName});
-            file.item.imageId.push({_id: saveImage._id});
-            await file.item.save();
+    // Generate the download URL for the uploaded file
+    const downloadURL = await getDownloadURL(storageRef);
 
-            await uploadBytesResumable(storageRef, file.images[i].buffer, metadata);
-
-        }
-        return
-    }
-
+    return downloadURL;
 }
-
 
 app.post('/test-upload', upload, async (req, res) => {
     const file = {
         type: req.file.mimetype,
         buffer: req.file.buffer
-    }
+    };
+
     try {
-        const buildImage = await uploadImage(file, 'single'); 
+        const downloadURL = await uploadImage(file);
         res.send({
             status: "SUCCESS",
-            imageName: buildImage
-        })
-    } catch(err) {
+            imageName: downloadURL
+        });
+     
+    } catch (err) {
         console.log(err);
+        res.status(500).send(`
+          Try Again
+        `);
     }
-})
+});
+
 
 app.listen(process.env.PORT || 3000, (test) => {
-  console.log('Server running on port 3000')
-})
-
+    console.log('Server running on port 3000');
+});
